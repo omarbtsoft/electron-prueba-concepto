@@ -13,6 +13,8 @@ function App() {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const [apiUrl, setApiUrl] = useState<string | null>(null);
+  const [dataApi, setDataApi] = useState<string>('');
 
   useEffect(() => {
     fetch("http://localhost:8080/api/listar")
@@ -25,11 +27,39 @@ function App() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = window.nativeAPI.onApiPortReady((port) => {
+      setApiUrl(`http://127.0.0.1:${port}`)
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (apiUrl) {
+      fetch(`${apiUrl}/api/health`)
+        .then((res) => {
+          if (!res.ok) throw new Error("Error en la API");
+          return res.json();
+        })
+        .then((data) => setDataApi(JSON.stringify(data)))
+        .catch((error) => console.error(error))
+        .finally(() => setLoading(false));
+    }
+  }, [apiUrl])
+
   if (loading) return <p>Cargando lista...</p>;
 
   return (
     <div style={{ maxWidth: "600px", margin: "20px auto", fontFamily: "Arial" }}>
       Dato desde: {appName}
+      <p>servidor de express: {apiUrl ?? ''}</p>
+      {dataApi && <div>
+        <code>
+          {dataApi}
+        </code>
+      </div>}
       <h1 style={{ fontSize: "24px", marginBottom: "16px" }}>Lista de Personas</h1>
       {personas.length === 0 ? (
         <p>No hay personas registradas</p>

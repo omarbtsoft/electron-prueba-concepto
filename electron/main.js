@@ -4,6 +4,7 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
 import { fork } from "child_process";
+import logger from "./logger.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -13,14 +14,18 @@ let apiPort = null;
 let isQuitting = false;
 
 function forkApiChild() {
-  const childPath = join(__dirname, "api-child.js"); // OJO: archivo separado
+  const childPath = join(__dirname, "api-child.js");
   apiChild = fork(childPath, [], {
     stdio: ["pipe", "pipe", "pipe", "ipc"],
     env: { ...process.env, ELECTRON: "1" },
   });
 
-  apiChild.stdout?.on("data", (d) => process.stdout.write(`[api] ${d}`));
-  apiChild.stderr?.on("data", (d) => process.stderr.write(`[api] ${d}`));
+  apiChild.stdout?.on("data", (d) =>
+    logger.logWithContext("info", d.toString().trim(), {}, "api-child")
+  );
+  apiChild.stderr?.on("data", (d) =>
+    logger.logWithContext("error", d.toString().trim(), {}, "api-child")
+  );
 
   // Handshake: esperamos el puerto del servidor Express
   apiChild.on("message", (msg) => {
@@ -33,12 +38,22 @@ function forkApiChild() {
   });
 
   apiChild.on("exit", (code, signal) => {
-    console.warn(`[api] proceso hijo salió (code=${code}, signal=${signal})`);
+    logger.logWithContext(
+      "warn",
+      "Proceso hijo salió",
+      { code, signal },
+      "api-child"
+    );
     apiChild = null;
     apiPort = null;
     if (!isQuitting) {
       setTimeout(() => {
-        console.log("[api] reiniciando hijo…");
+        logger.logWithContext(
+          "info",
+          "Reiniciando proceso hijo…",
+          {},
+          "api-child"
+        );
         forkApiChild();
       }, 1000);
     }
@@ -47,12 +62,13 @@ function forkApiChild() {
 
 const createWindow = async () => {
   forkApiChild();
-  const win = new BrowserWindow({
+  logger.logWithContext("info", "Electron start", {}, "main");
+  win = new BrowserWindow({
     width: 800,
     height: 600,
     webPreferences: {
       contextIsolation: true,
-      nodeIntegration: false,
+      nodeIntegration: true,
       preload: join(__dirname, "preload.js"),
     },
   });
@@ -81,4 +97,13 @@ app.on("window-all-closed", () => {
 
 app.on("activate", async () => {
   if (BrowserWindow.getAllWindows().length === 0) await createWindow();
+});
+
+process.on("uncaughtException", (err) => {
+  logger.logWithContext(
+    "error",
+    "Unhandled exception in main",
+    { stack: err.stack },
+    "main"
+  );
 });
